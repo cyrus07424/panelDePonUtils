@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "パネルでポン パスワードジェネレーター",
-  description: "パネルでポンのパスワードを生成するツール",
+  title: "パネルでポン / Tetris Attack パスワードジェネレーター",
+  description: "パネルでポンとTetris Attackのパスワードを生成するツール",
 };
 
 export default function RootLayout({
