@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 
 type Version = 'japanese' | 'international';
 
@@ -124,12 +125,12 @@ export default function Home() {
             <h1 className="text-3xl font-bold text-gray-800">
               {version === 'japanese' ? 'パネルでポン パスワードジェネレーター' : 'Tetris Attack Password Generator'}
             </h1>
-            <a
+            <Link
               href="/puzzle"
               className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-sm"
             >
               パズルエディタ
-            </a>
+            </Link>
           </div>
           
           {/* Version tabs */}
