@@ -256,6 +256,9 @@ export default function PuzzleEditor() {
           </div>
         </div>
       </div>
+      <footer className="text-center text-gray-400 mt-8">
+          &copy; 2025 <a href="https://github.com/cyrus07424" target="_blank" className="hover:text-gray-600">cyrus</a>
+      </footer>
     </div>
   );
 }
