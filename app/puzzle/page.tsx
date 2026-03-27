@@ -40,6 +40,8 @@ export default function PuzzleEditor() {
   const [solution, setSolution] = useState<string>('');
   const [isCalculating, setIsCalculating] = useState(false);
   const [moveCount, setMoveCount] = useState<number>(3);
+  const [exportText, setExportText] = useState<string>('');
+  const [copyMessage, setCopyMessage] = useState<string>('');
 
   // Handle cell click to place panel
   const handleCellClick = useCallback((row: number, col: number) => {
@@ -145,7 +147,7 @@ export default function PuzzleEditor() {
     }, 500);
   }, [grid]);
 
-  // Export puzzle as text file
+  // Export puzzle: copy to clipboard, fallback to textarea
   const exportPuzzle = useCallback(() => {
     const header = `手数: ${moveCount}\n`;
     const separator = '+' + '----+'.repeat(GRID_WIDTH) + '\n';
@@ -155,13 +157,19 @@ export default function PuzzleEditor() {
     }).join('\n' + separator);
     const text = header + separator + rows + '\n' + separator;
 
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'puzzle.txt';
-    a.click();
-    URL.revokeObjectURL(url);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        setExportText('');
+        setCopyMessage('クリップボードにコピーしました！');
+        setTimeout(() => setCopyMessage(''), 3000);
+      }).catch(() => {
+        setExportText(text);
+        setCopyMessage('');
+      });
+    } else {
+      setExportText(text);
+      setCopyMessage('');
+    }
   }, [grid, moveCount]);
 
   return (
@@ -266,9 +274,23 @@ export default function PuzzleEditor() {
                   onClick={exportPuzzle}
                   className="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors"
                 >
-                  テキストでエクスポート
+                  クリップボードにコピー
                 </button>
               </div>
+              {copyMessage && (
+                <p className="mt-2 text-sm text-green-600">{copyMessage}</p>
+              )}
+              {exportText && (
+                <div className="mt-2">
+                  <p className="text-sm text-gray-600 mb-1">以下のテキストを手動でコピーしてください:</p>
+                  <textarea
+                    readOnly
+                    value={exportText}
+                    className="w-full h-40 text-xs font-mono border border-gray-300 rounded-md p-2 bg-gray-50"
+                    onClick={e => e.currentTarget.select()}
+                  />
+                </div>
+              )}
             </div>
             
             {/* Right side - Solution */}
@@ -299,7 +321,7 @@ export default function PuzzleEditor() {
                   <li>• 「手数を設定」で1手～5手のパズル難易度を選択</li>
                   <li>• 「重力を適用」でパネルを下に落とす</li>
                   <li>• 「パズルを解析」で3個以上の隣接する同色パネルを検出</li>
-                  <li>• 「テキストでエクスポート」でパズルをテキストファイルに保存</li>
+                  <li>• 「クリップボードにコピー」でパズルをテキスト形式でコピー（非対応の場合はテキストエリアに表示）</li>
                   <li>• パネルでポンのルールに従って連鎖を計画できます</li>
                 </ul>
               </div>
