@@ -10,20 +10,20 @@ const PANEL_COLORS: Record<PanelType, string> = {
   empty: 'bg-gray-200',
   red: 'bg-red-500',
   green: 'bg-green-500', 
-  blue: 'bg-blue-500',
+  blue: 'bg-cyan-400',
   yellow: 'bg-yellow-500',
   purple: 'bg-purple-500',
-  pink: 'bg-pink-500'
+  pink: 'bg-blue-500'
 };
 
 const PANEL_NAMES: Record<PanelType, string> = {
   empty: '空',
   red: '赤',
   green: '緑',
-  blue: '青', 
+  blue: '水色', 
   yellow: '黄',
   purple: '紫',
-  pink: 'ピンク'
+  pink: '青'
 };
 
 // Grid dimensions
@@ -39,6 +39,7 @@ export default function PuzzleEditor() {
   const [selectedPanelType, setSelectedPanelType] = useState<PanelType>('red');
   const [solution, setSolution] = useState<string>('');
   const [isCalculating, setIsCalculating] = useState(false);
+  const [moveCount, setMoveCount] = useState<number>(3);
 
   // Handle cell click to place panel
   const handleCellClick = useCallback((row: number, col: number) => {
@@ -144,6 +145,25 @@ export default function PuzzleEditor() {
     }, 500);
   }, [grid]);
 
+  // Export puzzle as text file
+  const exportPuzzle = useCallback(() => {
+    const header = `手数: ${moveCount}\n`;
+    const separator = '+' + '----+'.repeat(GRID_WIDTH) + '\n';
+    const rows = grid.map((row, rowIndex) => {
+      const cells = row.map(panel => PANEL_NAMES[panel].padStart(3)).join('|');
+      return `|${cells}| 行${rowIndex + 1}`;
+    }).join('\n' + separator);
+    const text = header + separator + rows + '\n' + separator;
+
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'puzzle.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [grid, moveCount]);
+
   return (
     <div className="min-h-screen bg-gray-100 py-8">
       <div className="max-w-6xl mx-auto px-4">
@@ -189,6 +209,29 @@ export default function PuzzleEditor() {
                 </p>
               </div>
               
+              {/* Move count selector */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  手数を設定:
+                </label>
+                <div className="flex gap-2">
+                  {[1, 2, 3, 4, 5].map(n => (
+                    <button
+                      key={n}
+                      onClick={() => setMoveCount(n)}
+                      className={`w-10 h-10 rounded-md border-2 font-bold transition-all ${
+                        moveCount === n
+                          ? 'border-gray-800 bg-blue-500 text-white'
+                          : 'border-gray-300 bg-white text-gray-700 hover:border-gray-500'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-sm text-gray-600 mt-1">選択中: {moveCount}手</p>
+              </div>
+              
               {/* Grid */}
               <div className="border-2 border-gray-800 inline-block bg-gray-800 p-1">
                 <div className="grid grid-cols-6 gap-1">
@@ -219,6 +262,12 @@ export default function PuzzleEditor() {
                 >
                   重力を適用
                 </button>
+                <button
+                  onClick={exportPuzzle}
+                  className="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors"
+                >
+                  テキストでエクスポート
+                </button>
               </div>
             </div>
             
@@ -247,8 +296,10 @@ export default function PuzzleEditor() {
                 <h3 className="font-semibold mb-2">使い方:</h3>
                 <ul className="space-y-1">
                   <li>• 上のパネルタイプを選択してグリッドをクリックしてパネルを配置</li>
+                  <li>• 「手数を設定」で1手～5手のパズル難易度を選択</li>
                   <li>• 「重力を適用」でパネルを下に落とす</li>
                   <li>• 「パズルを解析」で3個以上の隣接する同色パネルを検出</li>
+                  <li>• 「テキストでエクスポート」でパズルをテキストファイルに保存</li>
                   <li>• パネルでポンのルールに従って連鎖を計画できます</li>
                 </ul>
               </div>
