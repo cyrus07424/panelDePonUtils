@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 
 // Panel types for Panel de Pon
@@ -26,6 +26,29 @@ const PANEL_NAMES: Record<PanelType, string> = {
   pink: '青'
 };
 
+// Text import/export character mapping (compatible with https://tl.foxcalculators.com/miscellaneous/20378.html)
+// '.' = empty, 'a' = red (PanelType 'red'), 'b' = yellow, 'c' = green,
+// 'd' = blue (displayed as cyan), 'e' = pink (displayed as blue), 'f' = purple
+const PANEL_TO_CHAR: Record<PanelType, string> = {
+  empty: '.',
+  red: 'a',
+  yellow: 'b',
+  green: 'c',
+  blue: 'd',
+  pink: 'e',
+  purple: 'f',
+};
+
+const CHAR_TO_PANEL: Record<string, PanelType> = {
+  '.': 'empty',
+  'a': 'red',
+  'b': 'yellow',
+  'c': 'green',
+  'd': 'blue',
+  'e': 'pink',
+  'f': 'purple',
+};
+
 // Grid dimensions
 const GRID_WIDTH = 6;
 const GRID_HEIGHT = 12;
@@ -40,7 +63,7 @@ export default function PuzzleEditor() {
   const [solution, setSolution] = useState<string>('');
   const [isCalculating, setIsCalculating] = useState(false);
   const [moveCount, setMoveCount] = useState<number>(3);
-  const [exportText, setExportText] = useState<string>('');
+  const [importExportText, setImportExportText] = useState<string>('');
   const [copyMessage, setCopyMessage] = useState<string>('');
 
   // Handle cell click to place panel
@@ -58,6 +81,12 @@ export default function PuzzleEditor() {
     setGrid(Array(GRID_HEIGHT).fill(null).map(() => Array(GRID_WIDTH).fill('empty')));
     setSolution('');
   }, []);
+
+  // Auto-update importExportText whenever grid or moveCount changes
+  useEffect(() => {
+    const rows = grid.map(row => row.map(p => PANEL_TO_CHAR[p]).join(''));
+    setImportExportText([moveCount.toString(), ...rows].join('\n'));
+  }, [grid, moveCount]);
 
   // Basic gravity simulation - panels fall down
   const applyGravity = useCallback(() => {
@@ -147,30 +176,58 @@ export default function PuzzleEditor() {
     }, 500);
   }, [grid]);
 
-  // Export puzzle: copy to clipboard, fallback to textarea
-  const exportPuzzle = useCallback(() => {
-    const header = `手数: ${moveCount}\n`;
-    const separator = '+' + '----+'.repeat(GRID_WIDTH) + '\n';
-    const rows = grid.map((row, rowIndex) => {
-      const cells = row.map(panel => PANEL_NAMES[panel].padStart(3)).join('|');
-      return `|${cells}| 行${rowIndex + 1}`;
-    }).join('\n' + separator);
-    const text = header + separator + rows + '\n' + separator;
+  // Import grid from textarea text
+  const importFromText = useCallback(() => {
+    const lines = importExportText.trim().split('\n');
+    if (lines.length !== GRID_HEIGHT + 1) {
+      alert(`行数が不正です (${GRID_HEIGHT + 1}行必要です)`);
+      return;
+    }
 
+    const moves = parseInt(lines[0], 10);
+    if (isNaN(moves) || moves < 0 || moves > 100) {
+      alert('手数が不正です');
+      return;
+    }
+
+    const newGrid: PanelType[][] = [];
+    for (let rowIndex = 0; rowIndex < GRID_HEIGHT; rowIndex++) {
+      const line = lines[rowIndex + 1].trim();
+      if (line.length !== GRID_WIDTH) {
+        alert(`列数が不正です (${GRID_WIDTH}文字必要です)`);
+        return;
+      }
+      const row: PanelType[] = [];
+      for (let col = 0; col < GRID_WIDTH; col++) {
+        const c = line[col];
+        if (!(c in CHAR_TO_PANEL)) {
+          alert(`不正な文字: '${c}'`);
+          return;
+        }
+        row.push(CHAR_TO_PANEL[c]);
+      }
+      newGrid.push(row);
+    }
+
+    setMoveCount(moves);
+    setGrid(newGrid);
+  }, [importExportText]);
+
+  // Copy current textarea content to clipboard
+  const copyToClipboard = useCallback(() => {
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => {
-        setExportText('');
+      navigator.clipboard.writeText(importExportText).then(() => {
         setCopyMessage('クリップボードにコピーしました！');
         setTimeout(() => setCopyMessage(''), 3000);
       }).catch(() => {
-        setExportText(text);
-        setCopyMessage('');
+        setCopyMessage('コピーに失敗しました');
+        setTimeout(() => setCopyMessage(''), 3000);
       });
     } else {
-      setExportText(text);
-      setCopyMessage('');
+      setCopyMessage('クリップボードへのアクセスが許可されていません');
+      setTimeout(() => setCopyMessage(''), 3000);
     }
-  }, [grid, moveCount]);
+  }, [importExportText]);
 
   return (
     <div className="min-h-screen bg-gray-100 py-8">
@@ -270,27 +327,39 @@ export default function PuzzleEditor() {
                 >
                   重力を適用
                 </button>
-                <button
-                  onClick={exportPuzzle}
-                  className="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors"
-                >
-                  クリップボードにコピー
-                </button>
               </div>
-              {copyMessage && (
-                <p className="mt-2 text-sm text-green-600">{copyMessage}</p>
-              )}
-              {exportText && (
-                <div className="mt-2">
-                  <p className="text-sm text-gray-600 mb-1">以下のテキストを手動でコピーしてください:</p>
-                  <textarea
-                    readOnly
-                    value={exportText}
-                    className="w-full h-40 text-xs font-mono border border-gray-300 rounded-md p-2 bg-gray-50"
-                    onClick={e => e.currentTarget.select()}
-                  />
+
+              {/* Text import/export */}
+              <div className="mt-6">
+                <h3 className="text-base font-semibold mb-2">テキストインポート / エクスポート</h3>
+                <p className="text-xs text-gray-500 mb-1">
+                  形式: 1行目=手数、2行目以降=各行 (6文字、<code>.=空 a=赤 b=黄 c=緑 d=水色 e=青 f=紫</code>)
+                </p>
+                <textarea
+                  value={importExportText}
+                  onChange={e => setImportExportText(e.target.value)}
+                  rows={14}
+                  spellCheck={false}
+                  className="w-full text-xs font-mono border border-gray-300 rounded-md p-2 bg-gray-50 leading-normal"
+                />
+                <div className="flex gap-2 mt-2 items-center flex-wrap">
+                  <button
+                    onClick={importFromText}
+                    className="px-4 py-2 bg-indigo-500 text-white rounded-md hover:bg-indigo-600 transition-colors"
+                  >
+                    インポート
+                  </button>
+                  <button
+                    onClick={copyToClipboard}
+                    className="px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors"
+                  >
+                    クリップボードにコピー
+                  </button>
+                  {copyMessage && (
+                    <span className="text-sm text-green-600">{copyMessage}</span>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
             
             {/* Right side - Solution */}
@@ -321,8 +390,9 @@ export default function PuzzleEditor() {
                   <li>• 「手数を設定」で1手～5手のパズル難易度を選択</li>
                   <li>• 「重力を適用」でパネルを下に落とす</li>
                   <li>• 「パズルを解析」で3個以上の隣接する同色パネルを検出</li>
-                  <li>• 「クリップボードにコピー」でパズルをテキスト形式でコピー（非対応の場合はテキストエリアに表示）</li>
-                  <li>• パネルでポンのルールに従って連鎖を計画できます</li>
+                  <li>• グリッドを編集するとテキストエリアが自動更新されます</li>
+                  <li>• テキストエリアを編集して「インポート」をクリックするとグリッドに反映されます</li>
+                  <li>• テキスト形式は <a href="https://tl.foxcalculators.com/miscellaneous/20378.html" target="_blank" className="text-blue-500 hover:underline">Panel de Pon Puzzle Solver</a> と互換性があります</li>
                 </ul>
               </div>
             </div>
