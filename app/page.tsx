@@ -1,121 +1,149 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useMemo, useState } from "react";
 
-type Version = 'japanese' | 'international';
+import {
+  PasswordInputError,
+  VS_CHARACTERS,
+  VS_DIFFICULTIES,
+  VS_FREEABLE_CHARACTERS,
+  VS_STAGES,
+  freedCharactersForStage,
+  generatePuzzlePassword,
+  generateStageClearPassword,
+  generateVsPassword,
+  type Game,
+  type StageClearKind,
+} from "@/lib/tapass/password";
+
+type Mode = "puzzle" | "vs" | "stageClear";
+
+const GAME_LABEL: Record<Game, string> = {
+  "panel-de-pon": "パネルでポン",
+  "tetris-attack": "Tetris Attack",
+};
+
+const MODE_LABEL: Record<Mode, string> = {
+  puzzle: "パズル",
+  vs: "対戦",
+  stageClear: "ステージクリア",
+};
+
+const STAGE_CLEAR_KIND_LABEL: Record<StageClearKind, string> = {
+  custom: "ステージ指定",
+  special: "スペシャルステージ",
+  final: "ファイナルステージ",
+};
+
+const fieldClass =
+  "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500";
+const labelClass = "block text-sm font-medium text-gray-700 mb-2";
+
+function clamp(value: string, min: number, max: number): number {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) return min;
+  return Math.max(min, Math.min(max, parsed));
+}
 
 export default function Home() {
-  const [version, setVersion] = useState<Version>('japanese');
-  const [area, setArea] = useState(1);
-  const [stage, setStage] = useState(1);
+  const [game, setGame] = useState<Game>("panel-de-pon");
+  const [mode, setMode] = useState<Mode>("puzzle");
+
+  // Puzzle
+  const [stageHigh, setStageHigh] = useState(1);
+  const [stageLow, setStageLow] = useState(1);
   const [hours, setHours] = useState(0);
   const [minutes, setMinutes] = useState(0);
   const [seconds, setSeconds] = useState(0);
-  const [isBackSide, setIsBackSide] = useState(false);
-  const [password, setPassword] = useState("");
+  const [extraPuzzleSet, setExtraPuzzleSet] = useState(false);
 
-  // Generate area options (1-6)
-  const areaOptions = Array.from({ length: 6 }, (_, i) => i + 1);
-  
-  // Generate stage options (1-10)
-  const stageOptions = Array.from({ length: 10 }, (_, i) => i + 1);
+  // Vs.
+  const [continues, setContinues] = useState(0);
+  const [vsStage, setVsStage] = useState(0);
+  const [difficulty, setDifficulty] = useState(0);
+  const [bestEnding, setBestEnding] = useState(false);
+  const [useCharacter, setUseCharacter] = useState(0);
+  const [freedCharacters, setFreedCharacters] = useState<boolean[]>(() =>
+    freedCharactersForStage(0),
+  );
 
-  // Japanese password generation algorithm (based on Panel de Pon patterns)
-  const generateJapanesePassword = (area: number, stage: number, h: number, m: number, s: number, backSide: boolean): string => {
-    // Japanese version uses different character sets and patterns
-    // Based on reverse engineering of Panel de Pon passwords
-    
-    // Known examples for Japanese version (hypothetical based on patterns)
-    const examples = [
-      { area: 1, stage: 1, h: 0, m: 0, s: 0, back: false, password: "PPL123!A" },
-      { area: 1, stage: 1, h: 1, m: 1, s: 1, back: false, password: "PPM234!B" },
-      { area: 1, stage: 2, h: 0, m: 0, s: 0, back: false, password: "PPL145!C" },
-      { area: 2, stage: 1, h: 0, m: 0, s: 0, back: false, password: "PPN123!D" },
-      { area: 1, stage: 1, h: 0, m: 0, s: 0, back: true, password: "PPL123ZA" },
-    ];
-    
-    // Check for exact match first
-    const exactMatch = examples.find(ex => 
-      ex.area === area && ex.stage === stage && ex.h === h && ex.m === m && ex.s === s && ex.back === backSide
-    );
-    
-    if (exactMatch) {
-      return exactMatch.password;
+  // Stage Clear
+  const [clearKind, setClearKind] = useState<StageClearKind>("custom");
+  const [clearStageHigh, setClearStageHigh] = useState(1);
+  const [clearStageLow, setClearStageLow] = useState(1);
+  const [score, setScore] = useState(0);
+  const [specialStageCleared, setSpecialStageCleared] = useState(false);
+
+  const availableModes: Mode[] =
+    game === "tetris-attack" ? ["puzzle", "vs", "stageClear"] : ["puzzle", "stageClear"];
+  const activeMode: Mode = availableModes.includes(mode) ? mode : "puzzle";
+
+  const result = useMemo(() => {
+    try {
+      if (activeMode === "puzzle") {
+        return {
+          password: generatePuzzlePassword(game, {
+            stageHigh,
+            stageLow,
+            hours,
+            minutes,
+            seconds,
+            extraPuzzleSet,
+          }),
+          error: null,
+        };
+      }
+      if (activeMode === "vs") {
+        return {
+          password: generateVsPassword({
+            continues,
+            stage: vsStage,
+            difficulty,
+            bestEnding,
+            useCharacter,
+            freedCharacters,
+          }),
+          error: null,
+        };
+      }
+      return {
+        password: generateStageClearPassword(game, {
+          kind: clearKind,
+          stageHigh: clearStageHigh,
+          stageLow: clearStageLow,
+          score,
+          specialStageCleared,
+        }),
+        error: null,
+      };
+    } catch (error) {
+      if (error instanceof PasswordInputError) {
+        return { password: "", error: error.message };
+      }
+      throw error;
     }
-    
-    // Pattern-based generation for Japanese version
-    const pos2Chars = ['P', 'Q', 'R', 'S', 'T', 'U']; // Different from international
-    const pos3Chars = ['L', 'M', 'N', 'O', 'P', 'Q'];
-    const pos4Chars = ['1', '2', '3', '4', '5', '6'];
-    const pos5Chars = ['2', '3', '4', '5', '6', '7'];
-    const pos6Chars = ['3', '4', '5', '6', '7', '8'];
-    const pos7Chars = ['!', '#', '$', '%', '&', '*'];
-    const pos8Chars = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
-    
-    let result = "PP"; // Japanese prefix
-    result += pos2Chars[(area + h) % pos2Chars.length];
-    result += pos3Chars[(stage + m) % pos3Chars.length];
-    result += pos4Chars[(h + area) % pos4Chars.length];
-    result += pos5Chars[(m + stage) % pos5Chars.length];
-    result += pos6Chars[(s + area + stage) % pos6Chars.length];
-    result += backSide ? 'Z' : pos7Chars[(area * stage + h) % pos7Chars.length];
-    result += pos8Chars[(area + stage + h + m + s + (backSide ? 10 : 0)) % pos8Chars.length];
-    
-    return result;
-  };
-
-  // International password generation algorithm (existing algorithm)
-  const generateInternationalPassword = (area: number, stage: number, h: number, m: number, s: number, backSide: boolean): string => {
-    const stageStr = `${area}-${stage}`;
-    
-    // Known examples for exact matching
-    const examples = [
-      { stage: "1-1", h: 0, m: 0, s: 0, back: false, password: "FP5D29C!" },
-      { stage: "1-1", h: 9, m: 59, s: 59, back: false, password: "FPDXGZ2!" },
-      { stage: "1-2", h: 0, m: 0, s: 0, back: false, password: "FP5J29CK" },
-      { stage: "1-2", h: 1, m: 1, s: 1, back: false, password: "FPSG229K" },
-      { stage: "1-2", h: 2, m: 2, s: 2, back: false, password: "FP%Q49!K" },
-      { stage: "6-1", h: 3, m: 3, s: 3, back: false, password: "FP??4241" },
-      { stage: "1-1", h: 0, m: 0, s: 0, back: true, password: "FP5D29J!" },
-      { stage: "2-1", h: 1, m: 2, s: 3, back: true, password: "FP7G49NH" },
-    ];
-    
-    // Check for exact match first
-    const exactMatch = examples.find(ex => 
-      ex.stage === stageStr && ex.h === h && ex.m === m && ex.s === s && ex.back === backSide
-    );
-    
-    if (exactMatch) {
-      return exactMatch.password;
-    }
-    
-    // Pattern-based generation for other cases
-    const pos2Chars = ['5', '7', 'D', 'S', '%', '?'];
-    const pos3Chars = ['D', 'G', 'J', 'Q', 'X', '?'];
-    const pos4Chars = ['2', '4', 'G'];
-    const pos5Chars = ['2', '9', 'Z'];
-    const pos6Chars = ['!', '2', '4', '9', 'C', 'J', 'N'];
-    const pos7Chars = ['!', '1', 'H', 'K'];
-    
-    let result = "FP";
-    result += pos2Chars[(area + h) % pos2Chars.length];
-    result += pos3Chars[(stage + m) % pos3Chars.length];
-    result += pos4Chars[(h + m) % pos4Chars.length];
-    result += pos5Chars[(m + s) % pos5Chars.length];
-    result += pos6Chars[(area * stage + (backSide ? 3 : 0)) % pos6Chars.length];
-    result += pos7Chars[(area + stage + (backSide ? 1 : 0)) % pos7Chars.length];
-    
-    return result;
-  };
-
-  // Update password when inputs change
-  useEffect(() => {
-    const newPassword = version === 'japanese' 
-      ? generateJapanesePassword(area, stage, hours, minutes, seconds, isBackSide)
-      : generateInternationalPassword(area, stage, hours, minutes, seconds, isBackSide);
-    setPassword(newPassword);
-  }, [version, area, stage, hours, minutes, seconds, isBackSide]);
+  }, [
+    activeMode,
+    game,
+    stageHigh,
+    stageLow,
+    hours,
+    minutes,
+    seconds,
+    extraPuzzleSet,
+    continues,
+    vsStage,
+    difficulty,
+    bestEnding,
+    useCharacter,
+    freedCharacters,
+    clearKind,
+    clearStageHigh,
+    clearStageLow,
+    score,
+    specialStageCleared,
+  ]);
 
   return (
     <div className="min-h-screen bg-gray-100 py-8">
@@ -123,7 +151,7 @@ export default function Home() {
         <div className="bg-white rounded-lg shadow-lg p-8">
           <div className="flex justify-between items-center mb-8">
             <h1 className="text-3xl font-bold text-gray-800">
-              {version === 'japanese' ? 'パネルでポン パスワードジェネレーター' : 'Tetris Attack Password Generator'}
+              パスワードジェネレーター
             </h1>
             <Link
               href="/puzzle"
@@ -132,153 +160,390 @@ export default function Home() {
               パズルエディタ
             </Link>
           </div>
-          
-          {/* Version tabs */}
-          <div className="flex mb-6 bg-gray-100 rounded-lg p-1">
-            <button
-              onClick={() => setVersion('japanese')}
-              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                version === 'japanese' 
-                  ? 'bg-white text-blue-600 shadow-sm' 
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              パネルでポン
-            </button>
-            <button
-              onClick={() => setVersion('international')}
-              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                version === 'international' 
-                  ? 'bg-white text-blue-600 shadow-sm' 
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Tetris Attack
-            </button>
+
+          {/* Game tabs */}
+          <div className="flex mb-4 bg-gray-100 rounded-lg p-1">
+            {(["panel-de-pon", "tetris-attack"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setGame(value)}
+                className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                  game === value
+                    ? "bg-white text-blue-600 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {GAME_LABEL[value]}
+              </button>
+            ))}
           </div>
-          
+
+          {/* Mode tabs */}
+          <div className="flex mb-6 bg-gray-100 rounded-lg p-1">
+            {availableModes.map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setMode(value)}
+                className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                  activeMode === value
+                    ? "bg-white text-blue-600 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                {MODE_LABEL[value]}
+              </button>
+            ))}
+          </div>
+
           <div className="space-y-6">
-            {/* Area and Stage selectors */}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="area" className="block text-sm font-medium text-gray-700 mb-2">
-                  {version === 'japanese' ? 'エリア' : 'Area'}
+            {activeMode === "puzzle" && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="stageHigh" className={labelClass}>
+                      ステージ（前半）
+                    </label>
+                    <select
+                      id="stageHigh"
+                      value={stageHigh}
+                      onChange={(e) => setStageHigh(Number.parseInt(e.target.value, 10))}
+                      className={fieldClass}
+                    >
+                      {Array.from({ length: 6 }, (_, i) => i + 1).map((value) => (
+                        <option key={value} value={value}>
+                          {value}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="stageLow" className={labelClass}>
+                      ステージ（後半）
+                    </label>
+                    <select
+                      id="stageLow"
+                      value={stageLow}
+                      onChange={(e) => setStageLow(Number.parseInt(e.target.value, 10))}
+                      className={fieldClass}
+                    >
+                      {Array.from({ length: 10 }, (_, i) => i + 1).map((value) => (
+                        <option key={value} value={value}>
+                          {value}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <span className={labelClass}>クリアタイム</span>
+                  <div className="flex space-x-2">
+                    <div className="flex-1">
+                      <label htmlFor="hours" className="block text-xs text-gray-500 mb-1">
+                        時 (0-9)
+                      </label>
+                      <input
+                        type="number"
+                        id="hours"
+                        min={0}
+                        max={9}
+                        value={hours}
+                        onChange={(e) => setHours(clamp(e.target.value, 0, 9))}
+                        className={fieldClass}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label htmlFor="minutes" className="block text-xs text-gray-500 mb-1">
+                        分 (0-59)
+                      </label>
+                      <input
+                        type="number"
+                        id="minutes"
+                        min={0}
+                        max={59}
+                        value={minutes}
+                        onChange={(e) => setMinutes(clamp(e.target.value, 0, 59))}
+                        className={fieldClass}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <label htmlFor="seconds" className="block text-xs text-gray-500 mb-1">
+                        秒 (0-59)
+                      </label>
+                      <input
+                        type="number"
+                        id="seconds"
+                        min={0}
+                        max={59}
+                        value={seconds}
+                        onChange={(e) => setSeconds(clamp(e.target.value, 0, 59))}
+                        className={fieldClass}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={extraPuzzleSet}
+                    onChange={(e) => setExtraPuzzleSet(e.target.checked)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <span className="ml-2 text-sm text-gray-700">エクストラパズル（裏面）</span>
                 </label>
-                <select
-                  id="area"
-                  value={area}
-                  onChange={(e) => setArea(parseInt(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                >
-                  {areaOptions.map((areaOption) => (
-                    <option key={areaOption} value={areaOption}>
-                      {areaOption}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              
-              <div>
-                <label htmlFor="stage" className="block text-sm font-medium text-gray-700 mb-2">
-                  {version === 'japanese' ? 'ステージ' : 'Stage'}
+              </>
+            )}
+
+            {activeMode === "vs" && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="vsStage" className={labelClass}>
+                      ステージ
+                    </label>
+                    <select
+                      id="vsStage"
+                      value={vsStage}
+                      onChange={(e) => setVsStage(Number.parseInt(e.target.value, 10))}
+                      className={fieldClass}
+                    >
+                      {VS_STAGES.map((name, index) => (
+                        <option key={name} value={index}>
+                          {index + 1}. {name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="difficulty" className={labelClass}>
+                      難易度
+                    </label>
+                    <select
+                      id="difficulty"
+                      value={difficulty}
+                      onChange={(e) => setDifficulty(Number.parseInt(e.target.value, 10))}
+                      className={fieldClass}
+                    >
+                      {VS_DIFFICULTIES.map((name, index) => (
+                        <option key={name} value={index}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="continues" className={labelClass}>
+                      コンティニュー回数 (0-127)
+                    </label>
+                    <input
+                      type="number"
+                      id="continues"
+                      min={0}
+                      max={127}
+                      value={continues}
+                      onChange={(e) => setContinues(clamp(e.target.value, 0, 127))}
+                      className={fieldClass}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="useCharacter" className={labelClass}>
+                      使用キャラクター
+                    </label>
+                    <select
+                      id="useCharacter"
+                      value={useCharacter}
+                      onChange={(e) => setUseCharacter(Number.parseInt(e.target.value, 10))}
+                      className={fieldClass}
+                    >
+                      {VS_CHARACTERS.map((name, index) => (
+                        <option key={name} value={index}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-700">解放済みキャラクター</span>
+                    <div className="space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setFreedCharacters(freedCharactersForStage(vsStage))}
+                        className="px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                      >
+                        ステージ連動
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFreedCharacters(new Array(8).fill(true))}
+                        className="px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+                      >
+                        すべて解放
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFreedCharacters(new Array(8).fill(false))}
+                        className="px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+                      >
+                        すべて未解放
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {VS_FREEABLE_CHARACTERS.map((name, index) => (
+                      <label key={name} className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={freedCharacters[index] ?? false}
+                          onChange={(e) =>
+                            setFreedCharacters((prev) =>
+                              prev.map((value, i) => (i === index ? e.target.checked : value)),
+                            )
+                          }
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                        />
+                        <span className="ml-2 text-sm text-gray-700">{name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={bestEnding}
+                    onChange={(e) => setBestEnding(e.target.checked)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <span className="ml-2 text-sm text-gray-700">ベストエンディング</span>
                 </label>
-                <select
-                  id="stage"
-                  value={stage}
-                  onChange={(e) => setStage(parseInt(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                >
-                  {stageOptions.map((stageOption) => (
-                    <option key={stageOption} value={stageOption}>
-                      {stageOption}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
+              </>
+            )}
 
-            {/* Time inputs */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                {version === 'japanese' ? '時間' : 'Time'}
-              </label>
-              <div className="flex space-x-2">
-                <div className="flex-1">
-                  <label htmlFor="hours" className="block text-xs text-gray-500 mb-1">
-                    {version === 'japanese' ? '時間' : 'Hours'}
+            {activeMode === "stageClear" && (
+              <>
+                <div>
+                  <span className={labelClass}>クリア地点</span>
+                  <div className="space-y-2">
+                    {(["custom", "special", "final"] as const).map((kind) => (
+                      <label key={kind} className="flex items-center">
+                        <input
+                          type="radio"
+                          name="clearKind"
+                          checked={clearKind === kind}
+                          onChange={() => setClearKind(kind)}
+                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                        />
+                        <span className="ml-2 text-sm text-gray-700">
+                          {STAGE_CLEAR_KIND_LABEL[kind]}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {clearKind === "custom" && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="clearStageHigh" className={labelClass}>
+                        ステージ（前半）
+                      </label>
+                      <select
+                        id="clearStageHigh"
+                        value={clearStageHigh}
+                        onChange={(e) => setClearStageHigh(Number.parseInt(e.target.value, 10))}
+                        className={fieldClass}
+                      >
+                        {Array.from({ length: 6 }, (_, i) => i + 1).map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="clearStageLow" className={labelClass}>
+                        ステージ（後半）
+                      </label>
+                      <select
+                        id="clearStageLow"
+                        value={clearStageLow}
+                        onChange={(e) => setClearStageLow(Number.parseInt(e.target.value, 10))}
+                        className={fieldClass}
+                      >
+                        {Array.from({ length: 5 }, (_, i) => i + 1).map((value) => (
+                          <option key={value} value={value}>
+                            {value}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label htmlFor="score" className={labelClass}>
+                    スコア (0-99999)
                   </label>
                   <input
                     type="number"
-                    id="hours"
-                    min="0"
-                    max="9"
-                    value={hours}
-                    onChange={(e) => setHours(Math.max(0, Math.min(9, parseInt(e.target.value) || 0)))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    id="score"
+                    min={0}
+                    max={99999}
+                    value={score}
+                    onChange={(e) => setScore(clamp(e.target.value, 0, 99999))}
+                    className={fieldClass}
                   />
                 </div>
-                <div className="flex-1">
-                  <label htmlFor="minutes" className="block text-xs text-gray-500 mb-1">
-                    {version === 'japanese' ? '分' : 'Minutes'}
-                  </label>
-                  <input
-                    type="number"
-                    id="minutes"
-                    min="0"
-                    max="59"
-                    value={minutes}
-                    onChange={(e) => setMinutes(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div className="flex-1">
-                  <label htmlFor="seconds" className="block text-xs text-gray-500 mb-1">
-                    {version === 'japanese' ? '秒' : 'Seconds'}
-                  </label>
-                  <input
-                    type="number"
-                    id="seconds"
-                    min="0"
-                    max="59"
-                    value={seconds}
-                    onChange={(e) => setSeconds(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-              </div>
-            </div>
 
-            {/* Back side checkbox */}
-            <div>
-              <label className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={isBackSide}
-                  onChange={(e) => setIsBackSide(e.target.checked)}
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <span className="ml-2 text-sm text-gray-700">
-                  {version === 'japanese' ? '裏面' : 'Back Side'}
-                </span>
-              </label>
-            </div>
+                {clearKind === "final" && (
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={specialStageCleared}
+                      onChange={(e) => setSpecialStageCleared(e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <span className="ml-2 text-sm text-gray-700">
+                      スペシャルステージクリア済み（パスワードには影響しません）
+                    </span>
+                  </label>
+                )}
+              </>
+            )}
 
-            {/* Generated password */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                {version === 'japanese' ? '生成されたパスワード' : 'Generated Password'}
-              </label>
+              <span className={labelClass}>生成されたパスワード</span>
               <div className="w-full px-4 py-3 bg-gray-50 border border-gray-300 rounded-md">
-                <span className="text-xl font-mono font-bold text-blue-600">
-                  {password}
-                </span>
+                {result.error ? (
+                  <span className="text-sm text-red-600">{result.error}</span>
+                ) : (
+                  <span className="text-xl font-mono font-bold text-blue-600 tracking-widest">
+                    {result.password}
+                  </span>
+                )}
               </div>
             </div>
           </div>
         </div>
       </div>
       <footer className="text-center text-gray-400 mt-8">
-          &copy; 2025 <a href="https://github.com/cyrus07424" target="_blank" className="hover:text-gray-600">cyrus</a>
+        &copy; 2026{" "}
+        <a
+          href="https://github.com/cyrus07424"
+          target="_blank"
+          className="hover:text-gray-600"
+        >
+          cyrus
+        </a>
       </footer>
     </div>
   );
