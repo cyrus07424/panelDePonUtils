@@ -2,9 +2,16 @@
 
 import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
-
-// Panel types for Panel de Pon
-type PanelType = 'empty' | 'red' | 'green' | 'blue' | 'yellow' | 'purple' | 'pink';
+import {
+  GRID_WIDTH,
+  GRID_HEIGHT,
+  PANEL_TO_CHAR,
+  CHAR_TO_PANEL,
+  applyGravity as computeGravity,
+  solvePuzzle as searchForSolution,
+  type PanelType,
+  type SolveStep,
+} from "@/lib/puzzle/solver";
 
 const PANEL_COLORS: Record<PanelType, string> = {
   empty: 'bg-gray-200',
@@ -26,33 +33,6 @@ const PANEL_NAMES: Record<PanelType, string> = {
   pink: '青'
 };
 
-// Text import/export character mapping (compatible with https://tl.foxcalculators.com/miscellaneous/20378.html)
-// '.' = empty, 'a' = red (PanelType 'red'), 'b' = yellow, 'c' = green,
-// 'd' = blue (displayed as cyan), 'e' = pink (displayed as blue), 'f' = purple
-const PANEL_TO_CHAR: Record<PanelType, string> = {
-  empty: '.',
-  red: 'a',
-  yellow: 'b',
-  green: 'c',
-  blue: 'd',
-  pink: 'e',
-  purple: 'f',
-};
-
-const CHAR_TO_PANEL: Record<string, PanelType> = {
-  '.': 'empty',
-  'a': 'red',
-  'b': 'yellow',
-  'c': 'green',
-  'd': 'blue',
-  'e': 'pink',
-  'f': 'purple',
-};
-
-// Grid dimensions
-const GRID_WIDTH = 6;
-const GRID_HEIGHT = 12;
-
 export default function PuzzleEditor() {
   // Initialize grid with empty panels
   const [grid, setGrid] = useState<PanelType[][]>(() => 
@@ -65,6 +45,12 @@ export default function PuzzleEditor() {
   const [moveCount, setMoveCount] = useState<number>(3);
   const [importExportText, setImportExportText] = useState<string>('');
   const [copyMessage, setCopyMessage] = useState<string>('');
+
+  // Solution search results, kept separate from the editable grid so the
+  // user can step through the found moves without losing their puzzle.
+  const [solutionSteps, setSolutionSteps] = useState<SolveStep[] | null>(null);
+  const [solvedBaseGrid, setSolvedBaseGrid] = useState<PanelType[][] | null>(null);
+  const [previewStepIndex, setPreviewStepIndex] = useState<number>(0);
 
   // Handle cell click to place panel
   const handleCellClick = useCallback((row: number, col: number) => {
@@ -80,6 +66,9 @@ export default function PuzzleEditor() {
   const clearGrid = useCallback(() => {
     setGrid(Array(GRID_HEIGHT).fill(null).map(() => Array(GRID_WIDTH).fill('empty')));
     setSolution('');
+    setSolutionSteps(null);
+    setSolvedBaseGrid(null);
+    setPreviewStepIndex(0);
   }, []);
 
   // Auto-update importExportText whenever grid or moveCount changes
@@ -90,91 +79,56 @@ export default function PuzzleEditor() {
 
   // Basic gravity simulation - panels fall down
   const applyGravity = useCallback(() => {
-    setGrid(prevGrid => {
-      const newGrid = Array(GRID_HEIGHT).fill(null).map(() => Array(GRID_WIDTH).fill('empty'));
-      
-      // For each column, collect non-empty panels and stack them at bottom
-      for (let col = 0; col < GRID_WIDTH; col++) {
-        const panels: PanelType[] = [];
-        for (let row = 0; row < GRID_HEIGHT; row++) {
-          if (prevGrid[row][col] !== 'empty') {
-            panels.push(prevGrid[row][col]);
-          }
-        }
-        
-        // Place panels from bottom up
-        for (let i = 0; i < panels.length; i++) {
-          newGrid[GRID_HEIGHT - 1 - i][col] = panels[panels.length - 1 - i];
-        }
-      }
-      
-      return newGrid;
-    });
+    setGrid(prevGrid => computeGravity(prevGrid));
   }, []);
 
-  // Simple puzzle solver - finds groups of 3+ matching adjacent panels
+  // Searches for a sequence of swaps (within moveCount moves) that clears
+  // every panel on the board, simulating swap / gravity / match / chain
+  // resolution exactly as the actual game does.
   const solvePuzzle = useCallback(() => {
     setIsCalculating(true);
-    
-    // This is a simplified solver that identifies matching groups
+    setSolutionSteps(null);
+    setSolvedBaseGrid(null);
+    setPreviewStepIndex(0);
+
+    // Defer so the "calculating" UI can render before the (potentially
+    // heavy) search runs on the main thread.
     setTimeout(() => {
-      const matches: string[] = [];
-      
-      // Check horizontal matches
-      for (let row = 0; row < GRID_HEIGHT; row++) {
-        let count = 1;
-        let currentType = grid[row][0];
-        
-        for (let col = 1; col < GRID_WIDTH; col++) {
-          if (grid[row][col] === currentType && currentType !== 'empty') {
-            count++;
-          } else {
-            if (count >= 3 && currentType !== 'empty') {
-              matches.push(`横の${PANEL_NAMES[currentType]}パネル: 行${row + 1}, 列${col - count + 1}-${col} (${count}個)`);
-            }
-            count = 1;
-            currentType = grid[row][col];
-          }
+      const outcome = searchForSolution(grid, moveCount);
+
+      if (outcome.status === 'solved') {
+        if (outcome.steps.length === 0) {
+          setSolution('既に全てのパネルが消えています。');
+        } else {
+          const lines = outcome.steps.map((step, i) => {
+            const chainText = step.chains > 0 ? ` (${step.chains}連鎖)` : '';
+            return `${i + 1}手目: 行${step.move.row + 1}の列${step.move.col + 1}と列${step.move.col + 2}を交換${chainText}`;
+          });
+          setSolution(`解法が見つかりました！(${outcome.steps.length}手)\n${lines.join('\n')}`);
         }
-        
-        // Check last group
-        if (count >= 3 && currentType !== 'empty') {
-          matches.push(`横の${PANEL_NAMES[currentType]}パネル: 行${row + 1}, 列${GRID_WIDTH - count + 1}-${GRID_WIDTH} (${count}個)`);
-        }
-      }
-      
-      // Check vertical matches
-      for (let col = 0; col < GRID_WIDTH; col++) {
-        let count = 1;
-        let currentType = grid[0][col];
-        
-        for (let row = 1; row < GRID_HEIGHT; row++) {
-          if (grid[row][col] === currentType && currentType !== 'empty') {
-            count++;
-          } else {
-            if (count >= 3 && currentType !== 'empty') {
-              matches.push(`縦の${PANEL_NAMES[currentType]}パネル: 列${col + 1}, 行${row - count + 1}-${row} (${count}個)`);
-            }
-            count = 1;
-            currentType = grid[row][col];
-          }
-        }
-        
-        // Check last group
-        if (count >= 3 && currentType !== 'empty') {
-          matches.push(`縦の${PANEL_NAMES[currentType]}パネル: 列${col + 1}, 行${GRID_HEIGHT - count + 1}-${GRID_HEIGHT} (${count}個)`);
-        }
-      }
-      
-      if (matches.length > 0) {
-        setSolution(`見つかったマッチ:\n${matches.join('\n')}\n\n${matches.length}個のマッチング グループが見つかりました。`);
+        setSolvedBaseGrid(grid.map(row => [...row]));
+        setSolutionSteps(outcome.steps);
+        setPreviewStepIndex(0);
+      } else if (outcome.status === 'no_solution') {
+        setSolution(`${moveCount}手以内では、全てのパネルを消す操作が見つかりませんでした。`);
+      } else if (outcome.status === 'limit_exceeded') {
+        setSolution('探索が複雑すぎるため、制限時間内に解法を見つけられませんでした。手数やパネルの数を減らして再度お試しください。');
       } else {
-        setSolution('マッチングするパネルが見つかりませんでした。3個以上の同じ色のパネルを隣接させてください。');
+        setSolution('手数の設定が不正です。0以上の整数を指定してください。');
       }
-      
+
       setIsCalculating(false);
-    }, 500);
-  }, [grid]);
+    }, 50);
+  }, [grid, moveCount]);
+
+  // Steps through the found solution without modifying the editable grid.
+  const goToStep = useCallback((index: number) => {
+    setPreviewStepIndex(prev => {
+      if (!solutionSteps) return prev;
+      return Math.max(0, Math.min(index, solutionSteps.length));
+    });
+  }, [solutionSteps]);
+
 
   // Import grid from textarea text
   const importFromText = useCallback(() => {
@@ -279,7 +233,7 @@ export default function PuzzleEditor() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   手数を設定:
                 </label>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center flex-wrap">
                   {[1, 2, 3, 4, 5].map(n => (
                     <button
                       key={n}
@@ -293,6 +247,18 @@ export default function PuzzleEditor() {
                       {n}
                     </button>
                   ))}
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={moveCount}
+                    onChange={e => {
+                      const n = parseInt(e.target.value, 10);
+                      if (!isNaN(n) && n >= 0 && n <= 100) setMoveCount(n);
+                    }}
+                    className="w-20 h-10 border-2 border-gray-300 rounded-md px-2 text-center"
+                    title="任意の手数を入力"
+                  />
                 </div>
                 <p className="text-sm text-gray-600 mt-1">選択中: {moveCount}手</p>
               </div>
@@ -371,7 +337,7 @@ export default function PuzzleEditor() {
                 disabled={isCalculating}
                 className="w-full px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors disabled:bg-gray-400 mb-4"
               >
-                {isCalculating ? '解析中...' : 'パズルを解析'}
+                {isCalculating ? '解答を探索中...' : `${moveCount}手以内の解答を探索`}
               </button>
               
               {solution && (
@@ -382,14 +348,73 @@ export default function PuzzleEditor() {
                   </pre>
                 </div>
               )}
+
+              {solutionSteps && solvedBaseGrid && (
+                <div className="mt-4 bg-gray-50 border border-gray-300 rounded-md p-4">
+                  <h3 className="font-semibold mb-2">解答プレビュー:</h3>
+                  <p className="text-sm text-gray-600 mb-2">
+                    {previewStepIndex === 0
+                      ? '初期状態'
+                      : `${previewStepIndex}手目まで適用済み`}
+                    {' '}({previewStepIndex} / {solutionSteps.length})
+                  </p>
+                  <div className="border-2 border-gray-800 inline-block bg-gray-800 p-1">
+                    <div className="grid grid-cols-6 gap-1">
+                      {(previewStepIndex === 0
+                        ? solvedBaseGrid
+                        : solutionSteps[previewStepIndex - 1].grid
+                      ).map((row, rowIndex) =>
+                        row.map((panel, colIndex) => (
+                          <div
+                            key={`${rowIndex}-${colIndex}`}
+                            className={`w-6 h-6 border border-gray-400 ${PANEL_COLORS[panel]}`}
+                            title={`行${rowIndex + 1}, 列${colIndex + 1}: ${PANEL_NAMES[panel]}`}
+                          />
+                        ))
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-3 items-center flex-wrap">
+                    <button
+                      onClick={() => goToStep(0)}
+                      disabled={previewStepIndex === 0}
+                      className="px-3 py-1 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition-colors disabled:bg-gray-300"
+                    >
+                      最初へ
+                    </button>
+                    <button
+                      onClick={() => goToStep(previewStepIndex - 1)}
+                      disabled={previewStepIndex === 0}
+                      className="px-3 py-1 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors disabled:bg-gray-300"
+                    >
+                      前の手
+                    </button>
+                    <button
+                      onClick={() => goToStep(previewStepIndex + 1)}
+                      disabled={previewStepIndex >= solutionSteps.length}
+                      className="px-3 py-1 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors disabled:bg-gray-300"
+                    >
+                      次の手
+                    </button>
+                    {previewStepIndex > 0 && previewStepIndex <= solutionSteps.length && (
+                      <span className="text-sm text-gray-600">
+                        {solutionSteps[previewStepIndex - 1].chains > 0
+                          ? `${solutionSteps[previewStepIndex - 1].chains}連鎖発生`
+                          : '連鎖なし'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
               
               <div className="mt-6 text-sm text-gray-600">
                 <h3 className="font-semibold mb-2">使い方:</h3>
                 <ul className="space-y-1">
                   <li>• 上のパネルタイプを選択してグリッドをクリックしてパネルを配置</li>
-                  <li>• 「手数を設定」で1手～5手のパズル難易度を選択</li>
+                  <li>• 「手数を設定」でパズルの手数を選択 (ボタンまたは数値入力)</li>
                   <li>• 「重力を適用」でパネルを下に落とす</li>
-                  <li>• 「パズルを解析」で3個以上の隣接する同色パネルを検出</li>
+                  <li>• 「手数以内の解答を探索」で、パネルの交換・消去・落下・連鎖をシミュレーションし、設定した手数以内で全てのパネルを消せる操作を探索します</li>
+                  <li>• 見つかった手順は「解答プレビュー」で一手ずつ確認できます</li>
                   <li>• グリッドを編集するとテキストエリアが自動更新されます</li>
                   <li>• テキストエリアを編集して「インポート」をクリックするとグリッドに反映されます</li>
                   <li>• テキスト形式は <a href="https://tl.foxcalculators.com/miscellaneous/20378.html" target="_blank" className="text-blue-500 hover:underline">Panel de Pon Puzzle Solver</a> と互換性があります</li>
