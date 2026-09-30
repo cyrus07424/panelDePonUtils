@@ -149,9 +149,9 @@ export default function Home() {
     <div className="min-h-screen bg-gray-100 py-8">
       <div className="max-w-2xl mx-auto px-4">
         <div className="bg-white rounded-lg shadow-lg p-8">
-          <div className="flex justify-between items-center mb-8">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-8">
             <h1 className="text-3xl font-bold text-gray-800">
-              パスワードジェネレーター
+              パネルでポン / Tetris Attack パスワードジェネレーター
             </h1>
             <Link
               href="/puzzle"
